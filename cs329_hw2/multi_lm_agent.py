@@ -44,9 +44,10 @@ class MultiLMAgent:
         self.generation_temp=generation_temp
         self.api_manager=api_manager
         ################ CODE STARTS HERE ###############
-        
-        pass 
-
+        self.decomposition_model = decomposition_model
+        self.iterative_refinement_model = iterative_refinement_model
+        self.fusion_model = fusion_model
+        self.fusion_temp = fusion_temp
         ################ CODE ENDS HERE ###############
 
     def generate(self, prompt: str, model: str = "gpt-4o-mini") -> List[Dict]:
