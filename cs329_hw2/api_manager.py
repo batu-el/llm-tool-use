@@ -24,9 +24,10 @@ class APIManager:
         Initializes API keys and configurations
         """
         ################ CODE STARTS HERE ###############
-
-        pass
-
+        self.google_api_key = google_api_key
+        self.google_cx_id = google_cx_id
+        self.alpha_vantage_url = "https://www.alphavantage.co/query"
+        self.alpha_vantage_key = alpha_vantage_key
         ################ CODE ENDS HERE ###############
 
     def parse_query_params(self, query: str, function_name: str) -> Optional[Dict]:
@@ -74,10 +75,24 @@ class APIManager:
                 - snippet: str
                 - webpage_content: Dict (optional)
         """
-        ################ CODE STARTS HERE ###############
+        ################ CODE STARTS HERE ############### 
+        service = build("customsearch", "v1", developerKey=self.google_api_key)
+        res = service.cse().list(q=search_term, cx=self.google_cx_id, num=num_results).execute()
+        items = res["items"]
+        results = [{"title":item.get("title"),"link":item.get("link"),"snippet": item.get("snippet")} for item in items]
 
-        pass
-
+        ### Webpage Content ###
+        max_length = 400
+        for idx, result in enumerate(results):
+            response = requests.get(result["link"], timeout=5)
+            try:
+                assert response.status_code == 200
+                soup = BeautifulSoup(response.text, "html.parser")
+                webpage_content = soup.get_text(separator=" ", strip=True)
+                results[idx]["webpage_content"] = webpage_content[:max_length] + "..." if len(webpage_content) > max_length else webpage_content
+            except:
+                results[idx]["webpage_content"] = f"Error Status: {response.status_code}"
+        return results
         ################ CODE ENDS HERE ###############
     
     def get_stock_data(self, symbol: str, date: Optional[str] = None) -> Dict:
@@ -102,6 +117,7 @@ class APIManager:
                     - volume: int
         """
         ################ CODE STARTS HERE ###############
+        response = requests.get(self.base_url, params=params)
 
         pass
 
