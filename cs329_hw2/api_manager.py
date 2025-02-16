@@ -24,10 +24,15 @@ class APIManager:
         Initializes API keys and configurations
         """
         ################ CODE STARTS HERE ###############
+        # Google
         self.google_api_key = google_api_key
         self.google_cx_id = google_cx_id
+        # Finance
         self.alpha_vantage_url = "https://www.alphavantage.co/query"
         self.alpha_vantage_key = alpha_vantage_key
+        # Weather
+        self.geocode_url = "https://geocoding-api.open-meteo.com/v1/search"
+        self.forecast_url = "https://api.open-meteo.com/v1/forecast"
         ################ CODE ENDS HERE ###############
 
     def parse_query_params(self, query: str, function_name: str) -> Optional[Dict]:
@@ -57,7 +62,7 @@ class APIManager:
                 - error: str (optional) - Error message if something went wrong
         """
         ################ CODE STARTS HERE ###############
-
+        route_query
         pass
 
         ################ CODE ENDS HERE ###############
@@ -80,7 +85,6 @@ class APIManager:
         res = service.cse().list(q=search_term, cx=self.google_cx_id, num=num_results).execute()
         items = res["items"]
         results = [{"title":item.get("title"),"link":item.get("link"),"snippet": item.get("snippet")} for item in items]
-
         ### Webpage Content ###
         max_length = 400
         for idx, result in enumerate(results):
@@ -91,7 +95,7 @@ class APIManager:
                 webpage_content = soup.get_text(separator=" ", strip=True)
                 results[idx]["webpage_content"] = webpage_content[:max_length] + "..." if len(webpage_content) > max_length else webpage_content
             except:
-                results[idx]["webpage_content"] = f"Error Status: {response.status_code}"
+                results[idx]["webpage_content"] = [{"ERROR": f"Error Status: {response.status_code}"}]
         return results
         ################ CODE ENDS HERE ###############
     
@@ -117,10 +121,23 @@ class APIManager:
                     - volume: int
         """
         ################ CODE STARTS HERE ###############
-        response = requests.get(self.base_url, params=params)
-
-        pass
-
+        def current_data_f():
+            params = {"function": "GLOBAL_QUOTE","symbol": symbol,"apikey": self.alpha_vantage_key}
+            response = requests.get(self.alpha_vantage_url, params=params)
+            data = response.json() 
+            quote = data.get("Global Quote", {})  
+            if quote:
+                return {"symbol": quote["01. symbol"],"price": float(quote["05. price"]),"change": float(quote["09. change"]),"change_percent": quote["10. change percent"]}
+            return
+        def historical_data_f():
+            params = {"function": "TIME_SERIES_DAILY","symbol": symbol,"apikey": self.alpha_vantage_key,"outputsize": "compact"}
+            response = requests.get(self.alpha_vantage_url, params=params)
+            data = response.json()     
+            time_series = data.get("Time Series (Daily)", {})
+            if date in time_series:
+                stock_info = time_series[date]
+                return {"date": date,"open": float(stock_info["1. open"]), "high": float(stock_info["2. high"]), "low": float(stock_info["3. low"]), "close": float(stock_info["4. close"]), "volume": int(stock_info["5. volume"])}
+        return historical_data_f() if date else current_data_f()
         ################ CODE ENDS HERE ###############
     
     @staticmethod
@@ -136,9 +153,15 @@ class APIManager:
                 - subjectivity: float - Subjectivity score
         """
         ################ CODE STARTS HERE ###############
-
-        pass
-
+        analysis = TextBlob(text)
+        polarity = analysis.sentiment.polarity
+        subjectivity = analysis.sentiment.subjectivity
+        sentiment = "neutral"
+        if polarity > 0.1:
+            sentiment = "positive"
+        if polarity < -0.1:
+            sentiment = "negative"
+        return {"sentiment": sentiment,"polarity": polarity,"subjectivity": subjectivity}
         ################ CODE ENDS HERE ###############
     
     @staticmethod
@@ -157,9 +180,29 @@ class APIManager:
                 - wind_speed: str, any wind speed value is acceptable
         """
         ################ CODE STARTS HERE ###############
-
-        pass
-
+        ### Input Parameters ###        
+        geocode = APIManager._get_coordinates(location.split(",")[0]) # only takes the city as input (can add the state with admin1 parameter)
+        try:
+            params = {"latitude": geocode["latitude"],"longitude": geocode["longitude"], "hourly": ["temperature_2m", "relative_humidity_2m", "windspeed_10m", "weathercode"],"timezone": "auto","start_date": date,"end_date": date}
+        except:
+            return {"ERROR": f"geocode output - {geocode}"}
+        ### API Request ###
+        forecast_url = "https://api.open-meteo.com/v1/forecast"
+        response = requests.get(forecast_url, params=params)
+        try:
+            assert response.status_code == 200
+            hour_index = int(hour) 
+            data = response.json()['hourly']
+            temperature = data['temperature_2m'][hour_index]
+            humidity = data['relative_humidity_2m'][hour_index]
+            wind_speed = data['windspeed_10m'][hour_index]
+            weather_code = data['weathercode'][hour_index]
+        except:
+            return {"ERROR": f"Error Status: {response.status_code}"}
+        ### Weather Description ###
+        weather_description = APIManager._get_weather_description(weather_code)
+        ### Final Output ###
+        return {"temperature": f"{temperature}", "weather_description": weather_description,"humidity": f"{humidity}","wind_speed": f"{wind_speed} km/h"}
         ################ CODE ENDS HERE ###############
     
     @staticmethod
@@ -172,9 +215,15 @@ class APIManager:
             Optional[tuple] - (latitude: float, longitude: float) or None if not found
         """
         ################ CODE STARTS HERE ###############
-
-        pass
-
+        geocode_url = "https://geocoding-api.open-meteo.com/v1/search"
+        params = {"name": location,  "count": 1,   "language": "en", "format": "json"}
+        response = requests.get(geocode_url, params=params)
+        try:
+            assert response.status_code == 200
+            data = response.json()
+            return {"latitude": data["results"][0]["latitude"],"longitude": data["results"][0]["longitude"]}
+        except:
+            return {"Error": f"Error Status: {response.status_code}"}
         ################ CODE ENDS HERE ###############
     
     @staticmethod
@@ -187,7 +236,35 @@ class APIManager:
             str - Human-readable weather description
         """
         ################ CODE STARTS HERE ###############
-
-        pass
-
+        weather_descriptions = {"0": "Clear sky",
+                                "1": "Mainly clear",
+                                "2": "Partly cloudy",
+                                "3": "Overcast",
+                                "45": "Fog",
+                                "48": "Depositing rime fog",
+                                "51": "Light drizzle",
+                                "53": "Moderate drizzle",
+                                "55": "Dense drizzle",
+                                "56": "Light freezing drizzle",
+                                "57": "Dense freezing drizzle",
+                                "61": "Slight rain",
+                                "63": "Moderate rain",
+                                "65": "Heavy rain",
+                                "66": "Light freezing rain",
+                                "67": "Heavy freezing rain",
+                                "71": "Slight snowfall",
+                                "73": "Moderate snowfall",
+                                "75": "Heavy snowfall",
+                                "77": "Snow grains",
+                                "80": "Slight rain showers",
+                                "81": "Moderate rain showers",
+                                "82": "Violent rain showers",
+                                "85": "Slight snow showers",
+                                "86": "Heavy snow showers",
+                                "95": "Slight or moderate thunderstorm",
+                                "96": "Thunderstorm with slight hail",
+                                "99": "Thunderstorm with heavy hail"
+                                }
+        weather_description = weather_descriptions.get(str(code), "Unknown")
+        return weather_description
         ################ CODE ENDS HERE ###############
